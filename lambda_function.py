@@ -111,6 +111,7 @@ def lambda_handler(event, context):
 
     if command == "done":
         res = table.query(KeyConditionExpression=Key("user_id").eq(user_id))
+        tasks = sorted(res["Items"], key=lambda t: t["deadline"])
         tasks = [t for t in tasks if not t.get("done")]
 
         if not tasks:
