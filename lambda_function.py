@@ -31,6 +31,21 @@ def lambda_handler(event, context):
     user = (data.get("member") or {}).get("user") or data.get("user") or {}
     user_id = user.get("id", "unknown")
 
+    if data["type"] == 3:
+        cid = data["data"]["custom_id"]        # どのメニューから来たかの札
+        task_id = data["data"]["values"][0]
+        if cid == "rm_select":                 # いままでの削除
+            table.delete_item(Key={"user_id": user_id, "task_id": task_id})
+            return respond({"type": 4, "data": {"content": "消したよ"}})
+    
+        if cid == "done_select":               # ★新しい完了マーク
+            table.update_item(
+                Key={"user_id": user_id, "task_id": task_id},
+                    UpdateExpression="SET done = :d",
+                    ExpressionAttributeValues={":d": True},
+            )
+            return respond({"type": 4, "data": {"content": "完了！おつかれさま"}})
+
     if data["type"] == 5:  # /add のフォーム送信が届いた
         values = {}
         for row in data["data"]["components"]:
@@ -50,10 +65,7 @@ def lambda_handler(event, context):
         msg = "追加したよ ✅ 〆" + values["deadline"] + "『" + values["name"] + "』"
         return respond({"type": 4, "data": {"content": msg}})
 
-    if data["type"] == 3:  # /rm のメニューで選ばれた
-        task_id = data["data"]["values"][0]
-        table.delete_item(Key={"user_id": user_id, "task_id": task_id})
-        return respond({"type": 4, "data": {"content": "消したよ 🗑️"}})
+    
 
     command = data["data"]["name"]
 
@@ -75,7 +87,7 @@ def lambda_handler(event, context):
         res = table.query(KeyConditionExpression=Key("user_id").eq(user_id))
         tasks = sorted(res["Items"], key=lambda t: t["deadline"])
         if tasks:
-            lines = ["・" + t["deadline"] + "　" + t["name"] for t in tasks]
+            lines = [("☑" if t.get("done") else ":・") + t["deadline"] + "　" + t["name"]for t in tasks]
             text = "📋 きみのタスク:\n" + "\n".join(lines)
         else:
             text = "まだタスク無いよ"
@@ -96,6 +108,25 @@ def lambda_handler(event, context):
                 ]}],
             },
         })
+
+    if command == "done":
+        res = table.query(KeyConditionExpression=Key("user_id").eq(user_id))
+        tasks = [t for t in tasks if not t.get("done")]
+
+        if not tasks:
+            return respond({"type": 4, "data": {"content": "未完了のタスクが無いよ"}})
+        options = [{"label": (t["deadline"] + "　" + t["name"])[:100], "value": t["task_id"]} for t in tasks]
+        return respond({
+            "type": 4,
+            "data": {
+                "content": "どれを完了にする？",
+                "components": [{"type": 1, "components": [
+                    {"type": 3, "custom_id": "done_select", "options": options}
+                ]}],
+            },
+        })
+
+    
 
     return respond({"type": 4, "data": {"content": "/" + command + " はまだ工事中🚧"}})
 
